@@ -292,7 +292,8 @@ def validate_limits(info: GifInfo, policy: SearchPolicy) -> None:
         return
     if info.frames > MAX_FRAMES_GUARD:
         raise UsageError(
-            f"input has {info.frames} frames (limit {MAX_FRAMES_GUARD}); use --allow-large to override"
+            f"input has {info.frames} frames (limit {MAX_FRAMES_GUARD}); "
+            "use --allow-large to override"
         )
     if info.width * info.height > MAX_PIXELS_GUARD:
         raise UsageError(
