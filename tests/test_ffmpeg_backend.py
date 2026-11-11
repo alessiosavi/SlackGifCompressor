@@ -7,9 +7,7 @@ from slackgif.config import EncodeSpec
 from slackgif.filters import build_encode_args, build_palette_args
 from slackgif.probe import probe_gif
 
-requires_ffmpeg = pytest.mark.skipif(
-    shutil.which("ffmpeg") is None, reason="ffmpeg not installed"
-)
+requires_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
 
 
 def test_quality_mapping():
@@ -29,6 +27,14 @@ def test_command_uses_fps_mode_not_vsync(make_gif):
     palette_args = build_palette_args("ffmpeg", "src.gif", "palette.png", spec, 128)
     assert "palettegen" in " ".join(palette_args)
     assert "-vsync" not in palette_args
+
+
+def test_background_palette_has_no_transparency():
+    spec = EncodeSpec(width=64, height=48, fps=10, quality=50, loop=0, background="#ffffff")
+    palette_args = build_palette_args("ffmpeg", "src.gif", "palette.png", spec, 128)
+    assert "reserve_transparent=0" in " ".join(palette_args)
+    encode_args = build_encode_args("ffmpeg", "src.gif", "palette.png", "out.gif", spec, 128)
+    assert "alpha_threshold" not in " ".join(encode_args)
 
 
 @requires_ffmpeg
@@ -83,9 +89,7 @@ def test_fixed_canvas_contains_not_stretches(make_gif, tmp_path):
     with Image.open(out) as img:
         rgba = img.convert("RGBA")
         assert rgba.getpixel((64, 2))[3] == 0
-        content_band = (
-            rgba.getpixel((x, y))[3] for x in range(128) for y in range(21, 107)
-        )
+        content_band = (rgba.getpixel((x, y))[3] for x in range(128) for y in range(21, 107))
         assert any(alpha > 0 for alpha in content_band)
 
 

@@ -152,9 +152,11 @@ def build_input_graph(spec: EncodeSpec, info: GifInfo | None = None) -> str:
 def build_palette_args(
     binary: str, src, palette, spec: EncodeSpec, colors: int, info: GifInfo | None = None
 ) -> list[str]:
+    reserve = 0 if spec.background is not None else 1
     graph = (
         build_input_graph(spec, info)
-        + f";[v]palettegen=max_colors={colors}:stats_mode=diff:reserve_transparent=1[palette]"
+        + f";[v]palettegen=max_colors={colors}:stats_mode=diff:"
+        + f"reserve_transparent={reserve}[palette]"
     )
     args = [
         binary,
@@ -177,10 +179,10 @@ def build_palette_args(
 def build_encode_args(
     binary: str, src, palette, dst, spec: EncodeSpec, colors: int, info: GifInfo | None = None
 ) -> list[str]:
-    graph = (
-        build_input_graph(spec, info)
-        + ";[v][1:v]paletteuse=dither=bayer:bayer_scale=5:alpha_threshold=128[out]"
-    )
+    paletteuse = "paletteuse=dither=bayer:bayer_scale=5"
+    if spec.background is None:
+        paletteuse += ":alpha_threshold=128"
+    graph = build_input_graph(spec, info) + f";[v][1:v]{paletteuse}[out]"
     loop = -1 if spec.loop is None else int(spec.loop)
     args = [
         binary,

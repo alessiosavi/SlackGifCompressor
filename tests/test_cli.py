@@ -1,7 +1,10 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
+
+import pytest
 
 from slackgif.cli import main
 
@@ -217,6 +220,10 @@ def test_cli_hardlink_refused(make_gif):
     assert main([str(src), "-o", str(dst), "--force"]) == 2
 
 
+@pytest.mark.skipif(
+    shutil.which("gifski") is None or shutil.which("ffmpeg") is None,
+    reason="gifski and ffmpeg are required for the fallback test",
+)
 def test_cli_backend_fallback(monkeypatch, make_gif, tmp_path, capsys):
     from slackgif.backends.gifski import GifskiBackend
     from slackgif.errors import BackendError
@@ -240,6 +247,10 @@ def test_variable_delay_warning(make_gif, tmp_path, capsys):
     assert any("variable frame delays" in warning for warning in data["warnings"])
 
 
+@pytest.mark.skipif(
+    shutil.which("gifski") is None or shutil.which("ffmpeg") is None,
+    reason="gifski + ffmpeg required for the frame path",
+)
 def test_static_emoji_gifski(make_gif, tmp_path):
     src = make_gif(size=(300, 200), frames=1, durations=[100], transparency=0)
     dst = tmp_path / "emoji.gif"
@@ -249,6 +260,7 @@ def test_static_emoji_gifski(make_gif, tmp_path):
     assert info.frames >= 1
 
 
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
 def test_static_emoji_ffmpeg(make_gif, tmp_path):
     src = make_gif(size=(300, 200), frames=1, durations=[100], transparency=0)
     dst = tmp_path / "emoji.gif"
@@ -256,6 +268,7 @@ def test_static_emoji_ffmpeg(make_gif, tmp_path):
     assert __import__("slackgif.probe", fromlist=["probe_gif"]).probe_gif(dst).frames >= 1
 
 
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
 def test_static_background_does_not_hang(make_gif, tmp_path):
     src = make_gif(size=(64, 48), frames=1, durations=[100], transparency=0)
     dst = tmp_path / "out.gif"

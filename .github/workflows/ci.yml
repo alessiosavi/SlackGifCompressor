@@ -9,8 +9,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        python: ["3.9", "3.13"]
+        # ubuntu-latest is Ubuntu 26.04, which no longer offers Python 3.9.
+        # 3.9 coverage is provided on macOS; 3.13 covers both OSes.
+        include:
+          - os: ubuntu-latest
+            python: "3.13"
+          - os: macos-latest
+            python: "3.9"
+          - os: macos-latest
+            python: "3.13"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

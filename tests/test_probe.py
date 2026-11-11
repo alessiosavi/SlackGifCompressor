@@ -1,3 +1,5 @@
+import shutil
+
 import pytest
 
 import slackgif.probe as probe
@@ -38,6 +40,7 @@ def test_pillow_fallback_when_parser_fails(monkeypatch, make_gif):
     assert info.loop_known is True
 
 
+@pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe not installed")
 def test_ffprobe_fallback_when_parser_and_pillow_fail(monkeypatch, make_gif):
     p = make_gif(frames=2, loop=0)
 
