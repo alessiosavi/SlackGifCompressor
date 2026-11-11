@@ -17,3 +17,9 @@ def test_binary_units():
 def test_invalid(value):
     with pytest.raises(UsageError):
         parse_size(value)
+
+
+@pytest.mark.parametrize("value", ["0.0001", "0.5B"])
+def test_too_small_to_represent(value):
+    with pytest.raises(UsageError):
+        parse_size(value)

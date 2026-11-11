@@ -56,6 +56,8 @@ def test_encode_preserves_dimensions_and_loop(make_gif, tmp_path):
 
 @requires_ffmpeg
 def test_transparency(make_gif, tmp_path):
+    from PIL import Image
+
     src = make_gif(size=(64, 48), frames=4, transparency=0)
     info = probe_gif(src)
     backend = FfmpegBackend(tmp_path / "work")
@@ -67,6 +69,9 @@ def test_transparency(make_gif, tmp_path):
         info,
     )
     assert probe_gif(out).has_alpha is True
+    with Image.open(out) as img:
+        alpha = img.convert("RGBA").getchannel("A")
+        assert alpha.getextrema() == (0, 255)
 
 
 @requires_ffmpeg

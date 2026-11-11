@@ -114,7 +114,10 @@ def parse_size(value: str) -> int:
     unit = (match.group(2) or "KB").upper()
     if not math.isfinite(number) or number <= 0:
         raise UsageError(f"size must be a finite positive number: {value!r}")
-    return int(number * _SIZE_FACTORS[unit])
+    size = int(number * _SIZE_FACTORS[unit])
+    if size <= 0:
+        raise UsageError(f"size is too small to represent: {value!r}")
+    return size
 
 
 def _parse_loop(value: str | None, default: str | int) -> str | int:
@@ -123,7 +126,10 @@ def _parse_loop(value: str | None, default: str | int) -> str | int:
     if value in ("preserve", "forever", "once"):
         return value
     if value.isdigit():
-        return int(value)
+        count = int(value)
+        if count > 0xFFFF:
+            raise UsageError(f"loop count exceeds the 16-bit GIF limit: {value!r}")
+        return count
     raise UsageError(f"invalid loop value: {value!r}")
 
 

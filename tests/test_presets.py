@@ -138,3 +138,8 @@ def test_validate_limits_rejects_total_pixels():
     policy = preset("message").policy
     with pytest.raises(UsageError):
         validate_limits(info(width=5000, height=5000, frames=20), policy)
+
+
+def test_loop_count_16_bit_limit():
+    with pytest.raises(UsageError):
+        preset("message", loop="65536")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import math
 import sys
 import tempfile
 import traceback
@@ -118,20 +119,22 @@ def _apply_overrides(preset: Preset, args: argparse.Namespace) -> Preset:
         raise UsageError("--min-quality must be between 1 and 100")
     if policy.max_encodes < 1:
         raise UsageError("--max-encodes must be at least 1")
-    if policy.timeout_s <= 0:
-        raise UsageError("--timeout must be positive")
+    if not math.isfinite(policy.timeout_s) or policy.timeout_s <= 0:
+        raise UsageError("--timeout must be a finite positive number")
     if policy.max_width < 1 or policy.max_height < 1:
         raise UsageError("--max-width/--max-height must be positive")
     if policy.min_width < 1:
         raise UsageError("--min-width must be positive")
-    if policy.min_fps <= 0:
-        raise UsageError("--min-fps must be positive")
-    if policy.max_fps is not None and policy.max_fps <= 0:
-        raise UsageError("--max-fps must be positive")
+    if not math.isfinite(policy.min_fps) or policy.min_fps <= 0:
+        raise UsageError("--min-fps must be a finite positive number")
+    if policy.max_fps is not None and (not math.isfinite(policy.max_fps) or policy.max_fps <= 0):
+        raise UsageError("--max-fps must be a finite positive number")
     if policy.max_frames is not None and policy.max_frames < 1:
         raise UsageError("--max-frames must be at least 1")
-    if policy.max_duration_s is not None and policy.max_duration_s <= 0:
-        raise UsageError("--max-duration must be positive")
+    if policy.max_duration_s is not None and (
+        not math.isfinite(policy.max_duration_s) or policy.max_duration_s <= 0
+    ):
+        raise UsageError("--max-duration must be a finite positive number")
 
     if preset.fixed_canvas is not None:
         canvas_width, canvas_height = preset.fixed_canvas
@@ -206,16 +209,38 @@ def _print_dry_run(
     )
 
 
+def _print_dry_run_json(
+    input_path: Path, preset: Preset, info: GifInfo, output_path: Path, requested: str
+) -> None:
+    policy = preset.policy
+    payload = {
+        "dry_run": True,
+        "input": str(input_path),
+        "output": str(output_path),
+        "preset": preset.name,
+        "backend": requested,
+        "target_bytes": policy.target_bytes,
+        "max_width": policy.max_width,
+        "max_height": policy.max_height,
+        "max_fps": policy.max_fps,
+        "source": {
+            "width": info.width,
+            "height": info.height,
+            "frames": info.frames,
+            "fps": info.fps,
+            "bytes": info.size_bytes,
+        },
+    }
+    print(json.dumps(payload, ensure_ascii=True))
+
+
 def _run(args: argparse.Namespace) -> int:
     if args.trim is not None:
-        print("error: --trim is not implemented in this version", file=sys.stderr)
-        return 2
+        raise UsageError("--trim is not implemented in this version")
     if args.output_dir is not None:
-        print("error: --output-dir is not implemented in this version", file=sys.stderr)
-        return 2
+        raise UsageError("--output-dir is not implemented in this version")
     if args.input is None:
-        print("error: an input GIF is required", file=sys.stderr)
-        return 2
+        raise UsageError("an input GIF is required")
 
     input_path = Path(args.input)
     preset = _apply_overrides(
@@ -238,12 +263,19 @@ def _run(args: argparse.Namespace) -> int:
     requested = _requested_backend(args)
 
     if args.dry_run:
-        _print_dry_run(input_path, preset, info, output_path, requested)
+        if args.json:
+            _print_dry_run_json(input_path, preset, info, output_path, requested)
+        else:
+            _print_dry_run(input_path, preset, info, output_path, requested)
         return 0
 
     from slackgif.output import ensure_safe_paths
 
     ensure_safe_paths(input_path, output_path, force=args.force)
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise OutputError(f"cannot create output directory {output_path.parent}: {exc}") from exc
 
     warnings: list[str] = []
     result = None

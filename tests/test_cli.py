@@ -288,3 +288,31 @@ def test_static_background_does_not_hang(make_gif, tmp_path):
         )
         == 0
     )
+
+
+def test_dry_run_json(make_gif, tmp_path, capsys):
+    src = make_gif()
+    dst = tmp_path / "out.gif"
+    assert main([str(src), "--dry-run", "--json", "-o", str(dst)]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["dry_run"] is True
+    assert data["preset"] == "message"
+    assert not dst.exists()
+
+
+def test_json_on_deferred_flag(make_gif, capsys):
+    assert main([str(make_gif()), "--trim", "0-1", "--json"]) == 2
+    data = json.loads(capsys.readouterr().out)
+    assert data["success"] is False
+    assert "not implemented" in data["error"]
+
+
+def test_missing_output_parent_created(make_gif, tmp_path):
+    src = make_gif()
+    dst = tmp_path / "new" / "out.gif"
+    assert main([str(src), "-o", str(dst)]) == 0
+    assert dst.exists()
+
+
+def test_nan_max_fps_rejected(make_gif):
+    assert main([str(make_gif()), "--max-fps", "nan"]) == 2

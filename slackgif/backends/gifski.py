@@ -39,8 +39,7 @@ class GifskiBackend:
                 or abs(spec.fps - info.fps) > 1e-6
                 or spec.background is not None
                 or (
-                    spec.max_duration_s is not None
-                    and spec.max_duration_s < info.duration_s - 1e-9
+                    spec.max_duration_s is not None and spec.max_duration_s < info.duration_s - 1e-9
                 )
                 or (spec.max_frames is not None and info.frames > spec.max_frames)
             )
@@ -52,10 +51,7 @@ class GifskiBackend:
             or preset.fit != "contain"
             or (policy.max_fps is not None and info.fps > policy.max_fps)
             or (policy.max_frames is not None and info.frames > policy.max_frames)
-            or (
-                policy.max_duration_s is not None
-                and info.duration_s > policy.max_duration_s
-            )
+            or (policy.max_duration_s is not None and info.duration_s > policy.max_duration_s)
         )
 
     def can_handle(self, info: GifInfo, preset: Preset) -> bool:
@@ -63,9 +59,7 @@ class GifskiBackend:
             return False
         if not self._needs_frames(info, preset=preset):
             return True
-        return (
-            shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
-        )
+        return shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
 
     def _run(self, command: list[str], timeout: float) -> None:
         try:
@@ -84,6 +78,7 @@ class GifskiBackend:
         self, src: Path, spec: EncodeSpec, info: GifInfo, timeout: float
     ) -> tuple[Path, float]:
         key = (
+            str(src),
             spec.width,
             spec.height,
             spec.fps,

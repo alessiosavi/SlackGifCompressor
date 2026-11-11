@@ -129,8 +129,21 @@ to stdout.
 - Refuses to overwrite an existing output unless `--force` is passed.
 - Writes candidates to a temporary directory and replaces the output atomically.
 - Never claims an output that was not written.
-- Caps input at 10,000 frames, 100M pixels per frame, and 600 seconds unless
-  `--allow-large` is passed.
+- Caps input at 10,000 frames, 100M pixels per frame, 200M total pixels, and
+  600 seconds unless `--allow-large` is passed.
+
+### Other flags
+
+- `--max-duration SEC` trims to the first N seconds; `--max-frames N`,
+  `--max-fps N`, `--max-width/--max-height N`, `--min-width N`, `--min-fps N`
+  constrain the search.
+- `--loop preserve|forever|once|N` controls the GIF loop extension.
+- `--keep-transparency` is the default when the source has alpha;
+  `--background COLOR` flattens onto a color instead.
+- `--backend auto|gifski|ffmpeg|pillow` forces a backend.
+- `--max-encodes N` caps the search (default 10); `--timeout SEC` is the
+  per-subprocess timeout; `--allow-large` bypasses the input guards.
+- `--verbose` prints extra diagnostics; `--quiet` suppresses progress.
 
 ## Limitations
 
@@ -166,3 +179,7 @@ the real-GIF acceptance benchmark:
 SLACKGIF_BENCH_GIF=~/Downloads/meme723-1794423241586.gif \
   .venv/bin/python scripts/benchmark.py --assert
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).

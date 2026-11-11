@@ -58,3 +58,5 @@ jobs:
         run: ruff check .
       - name: Unit tests (no backend integration)
         run: pytest -q -m "not integration"
+      - name: Pillow-only integration
+        run: pytest -q tests/test_integration.py::test_pillow_only_fallback
