@@ -259,7 +259,7 @@ def _continuous_quality_search(state: _Search, initial: Candidate) -> Candidate:
     q_hi: int | None = None
     s_hi: int | None = None
     q = q_lo
-    step = 8
+    step = 30
     while True:
         q = min(100, q + step)
         if q <= q_lo:

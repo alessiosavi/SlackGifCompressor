@@ -21,4 +21,4 @@ include = ["slackgif*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["bench: manual benchmark tests"]
+markers = ["bench: manual benchmark tests", "integration: backend integration tests"]
