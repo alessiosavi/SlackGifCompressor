@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-latest is Ubuntu 26.04, which no longer offers Python 3.9.
+        # 3.9 coverage is provided on macOS; 3.13 covers both OSes.
+        include:
+          - os: ubuntu-latest
+            python: "3.13"
+          - os: macos-latest
+            python: "3.9"
+          - os: macos-latest
+            python: "3.13"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install ffmpeg and optional encoders
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install ffmpeg gifski
+          else
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+            sudo apt-get install -y gifski || true
+          fi
+      - name: Install Python package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[test]'
+      - name: Lint
+        run: ruff check .
+      - name: Test
+        run: pytest -q
+
+  unit-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install Python package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[test]'
+      - name: Lint
+        run: ruff check .
+      - name: Unit tests (no backend integration)
+        run: pytest -q -m "not integration"
+      - name: Pillow-only integration
+        run: pytest -q tests/test_integration.py::test_pillow_only_fallback

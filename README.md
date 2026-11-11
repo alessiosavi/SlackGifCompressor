@@ -1,179 +1,185 @@
-# GIF Compressor for Slack
+# Slack GIF Compressor
 
-A robust Python tool to compress animated GIFs to under 128 KB for Slack compatibility. Uses an iterative optimization approach with ffmpeg (preferred) or Pillow as a fallback.
+Compress an animated GIF to a byte budget while keeping as much quality as the
+budget allows. The default is a **5 MiB message GIF**; the `emoji` preset targets
+Slack's **128 KiB, 128x128, 50-frame** custom-emoji limit.
 
-## Features
+The tool measures real encodes instead of guessing: it brackets encoder quality,
+runs a local secant search, and usually finishes in 3-7 encodes (hard cap 10).
+It prefers [gifski](https://gif.ski) for quality-per-byte, falls back to a tuned
+two-pass ffmpeg palette pipeline, and keeps Pillow as a last resort.
 
-- **Iterative Optimization** - Automatically finds the best compression settings
-- **Multiple Strategies** - Scaling, frame dropping, and color palette reduction
-- **Dual Backend** - ffmpeg for quality, Pillow as fallback
-- **Progress Tracking** - Real-time feedback on compression progress
-- **Animation Preservation** - Maintains loop metadata and animation integrity
+## Slack limits
 
-## Installation
+- **Message/file uploads:** Slack documents a 1 GB per-file limit. 5 MiB is a
+  practical budget for fast inline previews, not a documented hard cap.
+- **Custom emoji:** under 128 KB (131,072 bytes), square, and GIFs are limited
+  to 50 frames. Slack resizes emoji to 128x128 and re-checks the byte limit, so
+  this tool aims slightly under the limit.
+- **Message GIFs** keep the original GIF and animate inline; animated WebP and
+  MP4 are not the default because they lose GIF autoplay/loop semantics.
 
-### Prerequisites
+See [Add files to Slack](https://slack.com/help/articles/201330736-Add-files-to-Slack)
+and [Add custom emoji](https://slack.com/help/articles/206870177-Add-custom-emoji-and-aliases-to-your-workspace).
 
-**Option 1: ffmpeg (Recommended)**
+## Install
 
 ```bash
 # macOS
-brew install ffmpeg
+brew install gifski ffmpeg
 
 # Ubuntu/Debian
 sudo apt install ffmpeg
+# gifski is optional; install it from your package manager or from gif.ski
 
-# Windows (via Chocolatey)
-choco install ffmpeg
+# the Python package (no mandatory Python runtime dependencies)
+pipx install .
+# or
+uvx --from . gifc
 ```
 
-**Option 2: Pillow (Fallback)**
+`gifsicle` is optional. When present, it is used only as a lossy post-pass on
+ffmpeg output; it is never run on gifski output (it makes those files larger).
+
+Pillow is an optional extra and the last-resort backend:
 
 ```bash
-pip install Pillow
-```
-
-### Clone and Run
-
-```bash
-git clone <repository-url>
-cd slack_gif_normalizer
-python gif_compressor.py --help
+pip install '.[pillow]'
 ```
 
 ## Usage
 
-### Basic Usage
+```bash
+# Message GIF: default 5 MiB target
+gifc meme.gif
+
+# Custom emoji: 128 KiB, 128x128, <= 50 frames, alpha preserved
+gifc meme.gif --preset emoji
+
+# Explicit byte budget (binary units: 2MB = 2 * 1024 * 1024)
+gifc meme.gif --max-size 2MB
+
+# Fixed quality, one encode, no target search
+gifc meme.gif --quality 80
+
+# Fixed quality while searching dimensions for a target
+gifc meme.gif --quality 80 --max-size 1MB
+
+# Script-friendly output
+gifc meme.gif --json
+gifc meme.gif --dry-run
+```
+
+`gif_compressor.py` remains as a compatibility shim, so the old invocation
+still works.
+
+### Presets
+
+| Preset    | Default | Target                                | Constraints                                       |
+| --------- | ------- | ------------------------------------- | ------------------------------------------------- |
+| `message` | yes     | 5 MiB (5,242,880 B)                   | max 1024x1024, max 30 fps                         |
+| `emoji`   | no      | 128 KiB (131,072 B), 3% safety margin | exactly 128x128, max 50 frames, max 15 fps, alpha |
+| `custom`  | no      | `--max-size` or `--quality` required  | user                                              |
+
+Units are binary: `1 KB = 1024 B`, `1 MB = 1024^2 B`. A plain number is KB, so
+`-t 128` still means the old 128 KB target. `--fit pad` is an alias for
+`contain`.
+
+### Quality modes
+
+When the source is too large even at the minimum quality, the search has to
+reduce dimensions or frame rate:
+
+- `balanced` (default): spends the reduction on both, preserving resolution
+  first.
+- `resolution`: reduces fps first.
+- `motion`: reduces width first.
+
+### How the search works
+
+1. If the source already fits and satisfies the preset, copy it byte-for-byte
+   (0 encodes).
+2. Encode once at native dimensions and the minimum quality.
+3. If it fits, bracket quality upward and run a local secant until the result is
+   close to the budget or the quality bracket is one point wide.
+4. If it does not fit, estimate a width/fps reduction, measure the real result,
+   correct with the measured slope, and repeat up to four times.
+5. If the floors are exhausted, try one last encode at the minimum dimensions
+   and quality; otherwise emit the smallest measured result and report failure.
+
+The success threshold is the requested target. The internal 1% (message) or 3%
+(emoji) margin is only the search's aim, so an output between the margin and
+the target is still a success.
+
+### Exit codes
+
+| Code | Meaning                                                        |
+| ---- | -------------------------------------------------------------- |
+| 0    | Success; output is at or under target                          |
+| 1    | Best effort; output was written but exceeds target             |
+| 2    | Usage error (bad arguments, unsafe paths, unimplemented flags) |
+| 3    | Processing error (probe/backend/validation/output failure)     |
+
+Progress and warnings go to stderr. The final summary or `--json` object goes
+to stdout.
+
+## Safety
+
+- Refuses to write over the input, including hardlinks and symlinks.
+- Refuses to overwrite an existing output unless `--force` is passed.
+- Writes candidates to a temporary directory and replaces the output atomically.
+- Never claims an output that was not written.
+- Caps input at 10,000 frames, 100M pixels per frame, 200M total pixels, and
+  600 seconds unless `--allow-large` is passed.
+
+### Other flags
+
+- `--max-duration SEC` trims to the first N seconds; `--max-frames N`,
+  `--max-fps N`, `--max-width/--max-height N`, `--min-width N`, `--min-fps N`
+  constrain the search.
+- `--loop preserve|forever|once|N` controls the GIF loop extension.
+- `--keep-transparency` is the default when the source has alpha;
+  `--background COLOR` flattens onto a color instead.
+- `--backend auto|gifski|ffmpeg|pillow` forces a backend.
+- `--max-encodes N` caps the search (default 10); `--timeout SEC` is the
+  per-subprocess timeout; `--allow-large` bypasses the input guards.
+- `--verbose` prints extra diagnostics; `--quiet` suppresses progress.
+
+## Limitations
+
+- Variable per-frame delays may be normalized by the encoder. The tool warns;
+  exact per-frame timing preservation is future work.
+- gifski is optional. Without it, the ffmpeg fallback reaches roughly 340-425 px
+  at 5 MiB on the reference GIF; with gifsicle's lossy post-pass, roughly
+  360-425 px.
+- Pillow has no rate-control knob; it is used only when neither gifski nor
+  ffmpeg is available, or when forced.
+- 5 MB is a practical message budget, not a Slack hard limit.
+- `--trim`, `--output-dir`, crop, batch, and MP4 output are not implemented in
+  this version. They return exit 2 rather than being silently ignored.
+
+## Migration from 1.x
+
+The default target changed from **128 KB to 5 MiB** to match normal message
+GIFs. To keep the old behavior, use `--preset emoji` or `-t 128`.
+
+## Development
 
 ```bash
-# Compress to 128 KB (default), outputs input_compressed.gif
-python gif_compressor.py input.gif
-
-# Specify output path
-python gif_compressor.py input.gif -o output.gif
-
-# Custom target size
-python gif_compressor.py input.gif -t 64
-
-# Force Pillow backend
-python gif_compressor.py input.gif --pillow
+python3 -m venv .venv
+.venv/bin/pip install -e '.[test]'
+.venv/bin/ruff check .
+.venv/bin/python -m pytest -q
 ```
 
-### Command-Line Options
-
-| Option | Description |
-|--------|-------------|
-| `input` | Input GIF file path (required) |
-| `-o, --output` | Output file path (default: `input_compressed.gif`) |
-| `-t, --target` | Target size in KB (default: 128) |
-| `--pillow` | Force Pillow backend instead of ffmpeg |
-
-### Examples
+The backend integration tests skip cleanly when their binary is absent. To run
+the real-GIF acceptance benchmark:
 
 ```bash
-# Compress a large GIF for Slack
-python gif_compressor.py reaction.gif -o slack_ready.gif
-
-# Aggressive compression for email
-python gif_compressor.py animation.gif -t 50
-
-# Quick compression using Pillow
-python gif_compressor.py meme.gif --pillow -o meme_small.gif
+SLACKGIF_BENCH_GIF=~/Downloads/meme723-1794423241586.gif \
+  .venv/bin/python scripts/benchmark.py --assert
 ```
-
-## How It Works
-
-The compressor uses a 4-phase optimization strategy:
-
-### Phase 1: Scaling
-
-Iteratively reduces dimensions by 10% until reaching a 200px minimum width.
-
-### Phase 2: Frame Dropping
-
-Reduces frame count by keeping every Nth frame (2nd, 3rd, or 4th), adjusting timing to maintain animation speed.
-
-### Phase 3: Color Reduction
-
-Reduces the color palette: 256 → 128 → 64 → 32 colors using optimized dithering.
-
-### Phase 4: Aggressive Optimization
-
-Combines all techniques with more extreme settings if the target still isn't reached.
-
-```
-[ffmpeg] Starting GIF compression...
-  Original: 480x360, 45 frames, 10.0 fps
-  Original size: 2048.0 KB
-
-[Phase 1] Scaling down...
-  → Scale to 432px: 1520.3 KB (target: 128 KB)
-  → Scale to 388px: 1180.5 KB (target: 128 KB)
-  ...
-
-[Phase 2] Dropping frames...
-  → Keep every 2th frame: 450.2 KB (target: 128 KB)
-  ...
-
-==================================================
-✓ Success! Compressed to 118.4 KB (94.2% reduction)
-  Output: /path/to/output.gif
-```
-
-## Configuration
-
-Default settings can be modified in the script:
-
-```python
-DEFAULT_TARGET_KB = 128   # Target file size
-MIN_WIDTH = 200           # Minimum width in pixels
-SCALE_STEP = 0.9          # 10% reduction per iteration
-MIN_COLORS = 32           # Minimum color palette
-MAX_FRAME_SKIP = 4        # Maximum frame skip (keep every Nth)
-```
-
-## Troubleshooting
-
-### Cannot reach target size
-
-If the target cannot be reached, the script outputs the smallest possible version with suggestions:
-
-```
-⚠ Warning: Could not reach target 128 KB
-  Best result: 156.3 KB (85.2% reduction)
-
-Tips to further reduce size:
-  - Crop unnecessary parts of the GIF
-  - Shorten the animation duration
-  - Consider converting to a video format (MP4)
-```
-
-### ffmpeg not found
-
-The script automatically falls back to Pillow. For better quality, install ffmpeg:
-
-```bash
-# Verify installation
-ffmpeg -version
-```
-
-### Pillow not installed
-
-```bash
-pip install Pillow
-```
-
-## Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Success - target size reached |
-| 1 | Warning - best effort output, target not reached |
 
 ## License
 
-MIT License
-
-## Contributing
-
-Contributions welcome! Please open an issue or submit a pull request.
+MIT. See [LICENSE](LICENSE).

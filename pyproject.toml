@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slackgif"
+version = "2.0.0"
+description = "Compress animated GIFs for Slack with a byte budget and quality search"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+pillow = ["Pillow>=9.0"]
+test = ["pytest>=7", "Pillow>=9.0", "ruff>=0.4"]
+
+[project.scripts]
+gifc = "slackgif.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["slackgif*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["bench: manual benchmark tests", "integration: backend integration tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
