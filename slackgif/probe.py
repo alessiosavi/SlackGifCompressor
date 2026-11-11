@@ -106,8 +106,12 @@ def parse_gif_metadata(path: Path) -> GifInfo:
                     _read_exact(handle, block_size, offset)
                 frames += 1
                 delays.append(pending_delay)
-                if pending_transparent:
-                    has_alpha = True
+                if frames == 1:
+                    # Gifski (and some optimizers) set the transparency flag on
+                    # delta frames even when the visible animation is opaque.
+                    # The first frame cannot borrow pixels from an earlier frame,
+                    # so its flag is the reliable signal for real alpha.
+                    has_alpha = pending_transparent
                 pending_delay = 0
                 pending_transparent = False
                 continue
