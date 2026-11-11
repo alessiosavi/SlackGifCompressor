@@ -32,7 +32,11 @@ def make_gif(tmp_path: Path):
             for x in range(0, size[0], 8):
                 for y in range(0, size[1], 8):
                     if (x // 8 + y // 8 + i) % 3 == 0:
-                        img.putpixel((x, y), 1)
+                        for dx in range(2):
+                            for dy in range(2):
+                                px, py = x + dx, y + dy
+                                if px < size[0] and py < size[1]:
+                                    img.putpixel((px, py), 1)
             if transparency is not None:
                 img.info["transparency"] = 0
             images.append(img)

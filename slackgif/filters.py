@@ -90,3 +90,78 @@ def build_gifski_frames_args(
         str(dst),
         *[str(frame) for frame in frames],
     ]
+
+
+def build_prefilter(spec: EncodeSpec, info: GifInfo | None = None) -> str:
+    fps = format_rate(spec.fps)
+    if spec.canvas is not None:
+        width, height = spec.canvas
+        if spec.fit == "cover":
+            canvas_chain = (
+                f"scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,"
+                f"crop={width}:{height}"
+            )
+        else:
+            canvas_chain = (
+                f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos,"
+                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=#00000000"
+            )
+        return f"fps={fps},{canvas_chain}"
+    return f"fps={fps},scale={spec.width}:{spec.height}:flags=lanczos"
+
+
+def build_input_graph(spec: EncodeSpec, info: GifInfo | None = None) -> str:
+    prefilter = build_prefilter(spec, info)
+    if spec.background is not None:
+        color = validate_color(spec.background)
+        width, height = spec.canvas or (spec.width, spec.height)
+        return (
+            f"color=c={color}:s={width}x{height}:r={format_rate(spec.fps)}[bg];"
+            f"[0:v]{prefilter}[fg];"
+            f"[bg][fg]overlay=shortest=1:format=auto,format=rgb24[v]"
+        )
+    return f"[0:v]{prefilter}[v]"
+
+
+def build_palette_args(binary: str, src, palette, spec: EncodeSpec,
+                       colors: int, info: GifInfo | None = None) -> list[str]:
+    graph = (
+        build_input_graph(spec, info)
+        + f";[v]palettegen=max_colors={colors}:stats_mode=diff:reserve_transparent=1[palette]"
+    )
+    args = [
+        binary,
+        "-y",
+        "-v", "error",
+        "-i", str(src),
+        "-filter_complex", graph,
+        "-map", "[palette]",
+    ]
+    if spec.max_duration_s is not None:
+        args.extend(["-t", str(spec.max_duration_s)])
+    args.append(str(palette))
+    return args
+
+
+def build_encode_args(binary: str, src, palette, dst, spec: EncodeSpec,
+                      colors: int, info: GifInfo | None = None) -> list[str]:
+    graph = (
+        build_input_graph(spec, info)
+        + ";[v][1:v]paletteuse=dither=bayer:bayer_scale=5:alpha_threshold=128[out]"
+    )
+    loop = -1 if spec.loop is None else int(spec.loop)
+    args = [
+        binary,
+        "-y",
+        "-v", "error",
+        "-i", str(src),
+        "-i", str(palette),
+        "-filter_complex", graph,
+        "-map", "[out]",
+        "-loop", str(loop),
+        "-fps_mode", "passthrough",
+    ]
+    if spec.max_duration_s is not None:
+        args.extend(["-t", str(spec.max_duration_s)])
+    args.append(str(dst))
+    return args
