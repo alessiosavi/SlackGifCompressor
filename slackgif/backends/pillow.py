@@ -36,6 +36,7 @@ class PillowBackend:
     def _load(self, src: Path) -> tuple[list, list[int]]:
         from PIL import Image
 
+        Image.MAX_IMAGE_PIXELS = 100_000_000
         frames = []
         durations = []
         try:
@@ -108,9 +109,7 @@ class PillowBackend:
 
         width, height = frame.size
         if spec.canvas is None:
-            return frame.resize(
-                (max(1, spec.width), max(1, spec.height)), Image.LANCZOS
-            )
+            return frame.resize((max(1, spec.width), max(1, spec.height)), Image.LANCZOS)
 
         canvas_width, canvas_height = spec.canvas
         if spec.fit == "cover":

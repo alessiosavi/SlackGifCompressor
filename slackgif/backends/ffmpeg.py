@@ -25,9 +25,7 @@ class FfmpegBackend:
         self._counter = 0
 
     def available(self) -> bool:
-        return (
-            shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
-        )
+        return shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
 
     def can_handle(self, info: GifInfo, preset: Preset) -> bool:
         return self.available()
@@ -88,9 +86,9 @@ class FfmpegBackend:
         colors = quality_to_colors(spec.quality)
 
         try:
-            self._run(
-                build_palette_args(binary, src, palette, spec, colors, info), timeout
-            )
+            self._run(build_palette_args(binary, src, palette, spec, colors, info), timeout)
+            if not palette.exists() or palette.stat().st_size == 0:
+                raise BackendError("ffmpeg produced no palette (static or empty input)")
             self._run(
                 build_encode_args(binary, src, palette, dst, spec, colors, info),
                 timeout,

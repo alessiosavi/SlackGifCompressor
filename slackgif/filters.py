@@ -19,8 +19,31 @@ def validate_color(value: str) -> str:
     return value
 
 
+def _is_static(info: GifInfo | None) -> bool:
+    return bool(info is not None and (info.frames <= 1 or info.duration_s <= 0 or info.fps <= 0))
+
+
+def _fps_prefix(spec: EncodeSpec, info: GifInfo | None) -> str | None:
+    if _is_static(info):
+        return None
+    return f"fps={format_rate(spec.fps)}"
+
+
+def _background_duration(spec: EncodeSpec, info: GifInfo | None) -> float:
+    duration = spec.max_duration_s
+    if duration is None and info is not None and info.duration_s > 0:
+        duration = info.duration_s
+    if duration is None or duration <= 0:
+        duration = 1.0 / spec.fps if spec.fps > 0 else 1.0
+    return duration
+
+
 def build_frame_prefilter(spec: EncodeSpec, info: GifInfo) -> str:
-    chain = [f"fps={format_rate(spec.fps)}", "format=rgba"]
+    chain = []
+    prefix = _fps_prefix(spec, info)
+    if prefix is not None:
+        chain.append(prefix)
+    chain.append("format=rgba")
     if spec.canvas is not None:
         width, height = spec.canvas
         if spec.fit == "cover":
@@ -44,7 +67,8 @@ def build_frame_filtergraph(spec: EncodeSpec, info: GifInfo) -> str:
         color = validate_color(spec.background)
         width, height = spec.canvas or (spec.width, spec.height)
         return (
-            f"color=c={color}:s={width}x{height}:r={format_rate(spec.fps)}[bg];"
+            f"color=c={color}:s={width}x{height}:r={format_rate(spec.fps)}"
+            f":d={format_rate(_background_duration(spec, info))}[bg];"
             f"[0:v]{prefilter}[fg];"
             f"[bg][fg]overlay=shortest=1:format=auto,format=rgb24[out]"
         )
@@ -93,7 +117,7 @@ def build_gifski_frames_args(
 
 
 def build_prefilter(spec: EncodeSpec, info: GifInfo | None = None) -> str:
-    fps = format_rate(spec.fps)
+    prefix = _fps_prefix(spec, info)
     if spec.canvas is not None:
         width, height = spec.canvas
         if spec.fit == "cover":
@@ -106,8 +130,9 @@ def build_prefilter(spec: EncodeSpec, info: GifInfo | None = None) -> str:
                 f"scale={width}:{height}:force_original_aspect_ratio=decrease:flags=lanczos,"
                 f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=#00000000"
             )
-        return f"fps={fps},{canvas_chain}"
-    return f"fps={fps},scale={spec.width}:{spec.height}:flags=lanczos"
+        return ",".join(filter(None, [prefix, canvas_chain]))
+    scale_chain = f"scale={spec.width}:{spec.height}:flags=lanczos"
+    return ",".join(filter(None, [prefix, scale_chain]))
 
 
 def build_input_graph(spec: EncodeSpec, info: GifInfo | None = None) -> str:
@@ -116,15 +141,17 @@ def build_input_graph(spec: EncodeSpec, info: GifInfo | None = None) -> str:
         color = validate_color(spec.background)
         width, height = spec.canvas or (spec.width, spec.height)
         return (
-            f"color=c={color}:s={width}x{height}:r={format_rate(spec.fps)}[bg];"
+            f"color=c={color}:s={width}x{height}:r={format_rate(spec.fps)}"
+            f":d={format_rate(_background_duration(spec, info))}[bg];"
             f"[0:v]{prefilter}[fg];"
             f"[bg][fg]overlay=shortest=1:format=auto,format=rgb24[v]"
         )
     return f"[0:v]{prefilter}[v]"
 
 
-def build_palette_args(binary: str, src, palette, spec: EncodeSpec,
-                       colors: int, info: GifInfo | None = None) -> list[str]:
+def build_palette_args(
+    binary: str, src, palette, spec: EncodeSpec, colors: int, info: GifInfo | None = None
+) -> list[str]:
     graph = (
         build_input_graph(spec, info)
         + f";[v]palettegen=max_colors={colors}:stats_mode=diff:reserve_transparent=1[palette]"
@@ -132,10 +159,14 @@ def build_palette_args(binary: str, src, palette, spec: EncodeSpec,
     args = [
         binary,
         "-y",
-        "-v", "error",
-        "-i", str(src),
-        "-filter_complex", graph,
-        "-map", "[palette]",
+        "-v",
+        "error",
+        "-i",
+        str(src),
+        "-filter_complex",
+        graph,
+        "-map",
+        "[palette]",
     ]
     if spec.max_duration_s is not None:
         args.extend(["-t", str(spec.max_duration_s)])
@@ -143,8 +174,9 @@ def build_palette_args(binary: str, src, palette, spec: EncodeSpec,
     return args
 
 
-def build_encode_args(binary: str, src, palette, dst, spec: EncodeSpec,
-                      colors: int, info: GifInfo | None = None) -> list[str]:
+def build_encode_args(
+    binary: str, src, palette, dst, spec: EncodeSpec, colors: int, info: GifInfo | None = None
+) -> list[str]:
     graph = (
         build_input_graph(spec, info)
         + ";[v][1:v]paletteuse=dither=bayer:bayer_scale=5:alpha_threshold=128[out]"
@@ -153,13 +185,20 @@ def build_encode_args(binary: str, src, palette, dst, spec: EncodeSpec,
     args = [
         binary,
         "-y",
-        "-v", "error",
-        "-i", str(src),
-        "-i", str(palette),
-        "-filter_complex", graph,
-        "-map", "[out]",
-        "-loop", str(loop),
-        "-fps_mode", "passthrough",
+        "-v",
+        "error",
+        "-i",
+        str(src),
+        "-i",
+        str(palette),
+        "-filter_complex",
+        graph,
+        "-map",
+        "[out]",
+        "-loop",
+        str(loop),
+        "-fps_mode",
+        "passthrough",
     ]
     if spec.max_duration_s is not None:
         args.extend(["-t", str(spec.max_duration_s)])

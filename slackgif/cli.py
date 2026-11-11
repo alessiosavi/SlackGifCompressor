@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import json
 import sys
 import tempfile
 import traceback
@@ -46,12 +47,8 @@ def build_parser() -> argparse.ArgumentParser:
         dest="max_size",
         help="byte target, e.g. 5MB, 128KB, or 5120 (plain number = KB)",
     )
-    parser.add_argument(
-        "--quality", type=int, help="fixed quality 1-100; skips quality search"
-    )
-    parser.add_argument(
-        "--min-quality", type=int, help="minimum quality for the search"
-    )
+    parser.add_argument("--quality", type=int, help="fixed quality 1-100; skips quality search")
+    parser.add_argument("--min-quality", type=int, help="minimum quality for the search")
     parser.add_argument(
         "--quality-mode",
         choices=("balanced", "resolution", "motion"),
@@ -61,7 +58,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-height", type=int)
     parser.add_argument("--max-fps", type=float)
     parser.add_argument("--max-frames", type=int)
-    parser.add_argument("--max-duration", type=float, help="trim to this many seconds")
+    parser.add_argument(
+        "--max-duration", dest="max_duration_s", type=float, help="trim to this many seconds"
+    )
+    parser.add_argument("--min-width", type=int)
+    parser.add_argument("--min-fps", type=float)
     parser.add_argument("--fit", choices=("contain", "cover", "pad"))
     parser.add_argument(
         "--keep-transparency",
@@ -71,21 +72,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--background", help="flatten transparency onto this color")
     parser.add_argument("--loop", help="preserve, forever, once, or a loop count")
     parser.add_argument("--trim", help="deferred; returns exit 2")
-    parser.add_argument(
-        "--backend", choices=("auto", "gifski", "ffmpeg", "pillow"), default="auto"
-    )
+    parser.add_argument("--backend", choices=("auto", "gifski", "ffmpeg", "pillow"), default="auto")
     parser.add_argument("--pillow", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("-o", "--output")
     parser.add_argument("--output-dir", help="deferred; returns exit 2")
     parser.add_argument("--force", action="store_true", help="overwrite the output")
-    parser.add_argument(
-        "--json", action="store_true", help="emit one JSON object on stdout"
-    )
+    parser.add_argument("--json", action="store_true", help="emit one JSON object on stdout")
     parser.add_argument("-q", "--quiet", action="store_true")
     parser.add_argument("-v", "--verbose", action="store_true")
-    parser.add_argument(
-        "--dry-run", action="store_true", help="report the plan without encoding"
-    )
+    parser.add_argument("--dry-run", action="store_true", help="report the plan without encoding")
     parser.add_argument("--max-encodes", type=int, default=10)
     parser.add_argument("--timeout", type=float, default=120.0)
     parser.add_argument("--allow-large", action="store_true")
@@ -97,6 +92,8 @@ def _apply_overrides(preset: Preset, args: argparse.Namespace) -> Preset:
     changes = {}
     for name in (
         "min_quality",
+        "min_width",
+        "min_fps",
         "max_width",
         "max_height",
         "max_fps",
@@ -125,6 +122,10 @@ def _apply_overrides(preset: Preset, args: argparse.Namespace) -> Preset:
         raise UsageError("--timeout must be positive")
     if policy.max_width < 1 or policy.max_height < 1:
         raise UsageError("--max-width/--max-height must be positive")
+    if policy.min_width < 1:
+        raise UsageError("--min-width must be positive")
+    if policy.min_fps <= 0:
+        raise UsageError("--min-fps must be positive")
     if policy.max_fps is not None and policy.max_fps <= 0:
         raise UsageError("--max-fps must be positive")
     if policy.max_frames is not None and policy.max_frames < 1:
@@ -138,9 +139,7 @@ def _apply_overrides(preset: Preset, args: argparse.Namespace) -> Preset:
             raise UsageError("the emoji preset has a fixed 128x128 canvas")
         if args.max_height is not None and args.max_height != canvas_height:
             raise UsageError("the emoji preset has a fixed 128x128 canvas")
-        policy = dataclasses.replace(
-            policy, max_width=canvas_width, max_height=canvas_height
-        )
+        policy = dataclasses.replace(policy, max_width=canvas_width, max_height=canvas_height)
     return dataclasses.replace(preset, policy=policy)
 
 
@@ -166,8 +165,7 @@ def select_backends(
             raise BackendError(f"{requested} is not installed")
         if not backend.can_handle(info, preset):
             raise BackendError(
-                f"{requested} cannot handle this preset; install ffmpeg or choose "
-                "another backend"
+                f"{requested} cannot handle this preset; install ffmpeg or choose another backend"
             )
         return [backend]
 
@@ -198,9 +196,7 @@ def _print_dry_run(
     print(f"Input: {input_path}")
     print(f"Output: {output_path}")
     print(f"Preset: {preset.name}")
-    print(
-        f"Target: {policy.target_bytes if policy.target_bytes is not None else 'none'}"
-    )
+    print(f"Target: {policy.target_bytes if policy.target_bytes is not None else 'none'}")
     print(f"Max dimensions: {policy.max_width}x{policy.max_height}")
     print(f"Max fps: {policy.max_fps if policy.max_fps is not None else 'none'}")
     print(f"Backend: {requested}")
@@ -236,6 +232,8 @@ def _run(args: argparse.Namespace) -> int:
     )
     info = probe_gif(input_path)
     validate_limits(info, preset.policy)
+    if preset.policy.allow_large:
+        print("warning: --allow-large bypasses the input size guards", file=sys.stderr)
     output_path = _output_path(args, input_path)
     requested = _requested_backend(args)
 
@@ -265,9 +263,7 @@ def _run(args: argparse.Namespace) -> int:
                     input_path, output_path, preset=preset, backend=backend, info=info
                 )
                 if warnings:
-                    result = dataclasses.replace(
-                        result, warnings=tuple(warnings) + result.warnings
-                    )
+                    result = dataclasses.replace(result, warnings=tuple(warnings) + result.warnings)
                 break
             except OutputError:
                 raise
@@ -307,7 +303,44 @@ def _run(args: argparse.Namespace) -> int:
     return 0 if result.success else 1
 
 
+def _configure_streams() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(errors="backslashreplace")
+            except (ValueError, OSError):
+                pass
+
+
+def _json_error_payload(args: argparse.Namespace, error: BaseException) -> dict:
+    return {
+        "input": getattr(args, "input", None),
+        "output": None,
+        "preset": getattr(args, "preset", None),
+        "backend": None,
+        "success": False,
+        "target_bytes": None,
+        "output_bytes": None,
+        "width": None,
+        "height": None,
+        "fps": None,
+        "frames": None,
+        "quality": None,
+        "encodes": 0,
+        "seconds": 0.0,
+        "warnings": [],
+        "error": str(error),
+    }
+
+
+def _emit_json_error(args: argparse.Namespace, error: BaseException) -> None:
+    if getattr(args, "json", False):
+        print(json.dumps(_json_error_payload(args, error), ensure_ascii=True))
+
+
 def main(argv: list[str] | None = None) -> int:
+    _configure_streams()
     parser = build_parser()
     try:
         args = parser.parse_args(argv)
@@ -317,18 +350,22 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return _run(args)
     except UsageError as exc:
+        _emit_json_error(args, exc)
         print(f"error: {exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
         print("error: interrupted", file=sys.stderr)
         return 130
     except (ProbeError, BackendError, ValidationError, OutputError) as exc:
+        _emit_json_error(args, exc)
         print(f"error: {exc}", file=sys.stderr)
         return 3
     except SlackGifError as exc:
+        _emit_json_error(args, exc)
         print(f"error: {exc}", file=sys.stderr)
         return 3
     except Exception as exc:
+        _emit_json_error(args, exc)
         if getattr(args, "verbose", False):
             traceback.print_exc()
         else:

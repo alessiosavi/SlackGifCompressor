@@ -127,3 +127,14 @@ def test_validate_limits_rejects_large_inputs():
 def test_allow_large_bypasses_limits():
     policy = replace(preset("message").policy, allow_large=True)
     validate_limits(info(frames=20_000, duration_s=1000.0), policy)
+
+
+def test_background_always_requires_reencode():
+    message = preset("message", background="white")
+    assert not is_compliant(info(has_alpha=False, size_bytes=1000), message)
+
+
+def test_validate_limits_rejects_total_pixels():
+    policy = preset("message").policy
+    with pytest.raises(UsageError):
+        validate_limits(info(width=5000, height=5000, frames=20), policy)

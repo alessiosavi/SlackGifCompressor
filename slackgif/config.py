@@ -11,6 +11,7 @@ MESSAGE_TARGET = 5 * 1024 * 1024
 EMOJI_TARGET = 128 * 1024
 MAX_FRAMES_GUARD = 10_000
 MAX_PIXELS_GUARD = 100_000_000
+MAX_TOTAL_PIXELS_GUARD = 200_000_000
 MAX_DURATION_GUARD = 600.0
 
 _SIZE_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(B|KB|MB|GB)?\s*$", re.IGNORECASE)
@@ -102,9 +103,7 @@ class Preset:
         if self.fixed_canvas is not None:
             width, height = self.fixed_canvas
             if self.policy.max_width != width or self.policy.max_height != height:
-                raise UsageError(
-                    "fixed-canvas presets must clamp max width/height to the canvas"
-                )
+                raise UsageError("fixed-canvas presets must clamp max width/height to the canvas")
 
 
 def parse_size(value: str) -> int:
@@ -227,9 +226,7 @@ def resolve_preset(
         if not background.strip():
             raise UsageError("--background needs a color")
         if keep_transparency is True:
-            raise UsageError(
-                "--background and --keep-transparency are mutually exclusive"
-            )
+            raise UsageError("--background and --keep-transparency are mutually exclusive")
         keep = False
     else:
         keep = default_keep if keep_transparency is None else keep_transparency
@@ -282,7 +279,9 @@ def is_compliant(info: GifInfo, preset: Preset) -> bool:
 
     if preset.keep_transparency and info.has_alpha is None:
         return False
-    if preset.background is not None and info.has_alpha is not False:
+    if preset.background is not None:
+        # A copy cannot flatten, even when the source's first frame is opaque:
+        # optimized GIFs can introduce real transparency in later frames.
         return False
     return True
 
@@ -299,6 +298,11 @@ def validate_limits(info: GifInfo, policy: SearchPolicy) -> None:
         raise UsageError(
             f"input frame is {info.width}x{info.height} (limit {MAX_PIXELS_GUARD} pixels); "
             "use --allow-large to override"
+        )
+    if info.frames * info.width * info.height > MAX_TOTAL_PIXELS_GUARD:
+        raise UsageError(
+            f"input totals {info.frames * info.width * info.height} pixels "
+            f"(limit {MAX_TOTAL_PIXELS_GUARD}); use --allow-large to override"
         )
     if info.duration_s > MAX_DURATION_GUARD:
         raise UsageError(
